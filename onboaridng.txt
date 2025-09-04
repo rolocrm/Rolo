@@ -1,0 +1,258 @@
+# Rolo App — Onboarding Flow Specification
+
+## Overview
+
+The Rolo app onboarding flow accommodates both new and invited users with two primary pathways:
+
+- **User signs up and creates or joins a community**
+- **User receives an invitation and accepts access to a community** (User already has an account or creates one but is not yet in a community)
+
+The system includes built-in admin approval, role assignment, and state-based navigation. Below are all UI states, transitions, and edge cases accounted for in the design.
+
+---
+
+## 1. Entry Points
+
+### 1.1 Login Screen
+**Fields:**  
+- Email  
+- Password  
+
+**Actions:**  
+- Log in  
+- Log in with Google  
+- Forgot Password → navigates to “Oops, Locked Out?” screen  
+
+---
+
+## 2. Signup Flow
+
+### 2.1 Signup Screen
+**Fields:**  
+- Email  
+- Password  
+
+**Actions:**  
+- Sign up → creates a user with their unique ID (optionally triggers email verification)  
+- Sign up with Google → triggers OAuth registration  
+
+### 2.2 Profile Setup
+**Fields:**  
+- Avatar (default image if none uploaded)  
+- First name  
+- Last name  
+- Phone number  
+
+**Action:**  
+- Create profile  
+
+---
+
+## 3. Post-Signup Routing Options
+
+### 3.1 Welcome Screen
+**Message:**  
+`Welcome [firstName]!`
+
+**Choices:**  
+- Join a Community → leads to Join a Community form  
+- Create a Community → leads to Create Community form  
+
+---
+
+## 4. Join Flow
+
+### 4.1 Join a Community
+**Field:**  
+- Community handle  
+
+**Action:**  
+- Request to join  
+
+**State:**  
+- User sees “We sent your request, you’ll be notified when approved”
+
+### 4.2 Admin Review
+**Notification:**  
+- Admin receives "Request to Join" with name/email
+
+**Admin Actions:**  
+- Decline → no further action  
+- Set role → Admin, Limited Admin, Viewer  
+- Approve → user gets access to the community (based on assigned role)  
+
+---
+
+## 5. Create Community Flow
+
+### 5.1 Create Community Screen
+**Logo:**  
+- Upload community logo  
+
+**Fields:**  
+- Community handle* (must be unique, lowercase, no spaces/special characters, 3+ characters)  
+- Community name*  
+- Email* (used for outbound communication)  
+- Phone number*  
+- Tax ID  
+- Address, City, State, Zip, Country  
+
+**Collaborators:**  
+- + Add collaborator (supports multiple entries)  
+  - Full name*  
+  - Email*  
+  - Role → Admin, Limited Admin, Viewer  
+  - Remove option (X)  
+
+**Action:**  
+- Create Community  
+
+### 5.2 Confirmation
+**Message:**  
+`You’re all set. Want to go further?`
+
+**Suggested next steps:**  
+- Invite teammates  
+- Connect Email  
+- Connect SMS  
+- Integrate with Google Calendar  
+
+---
+
+## 6. Invite Flow
+
+### 6.1 Invite Screen
+**Context:**  
+- User receives invite via email link
+
+**Screen Shows:**  
+`You’ve been invited to join [Community]`
+
+**Actions:**  
+- Accept Invite → proceeds to onboarding with access pre-filled  
+- Role is preassigned (e.g., sub-admin, viewer)  
+
+---
+
+## 7. Forgot Password Flow
+
+### 7.1 Oops, Locked Out?
+**Fields:**  
+- Email  
+
+**Flow:**  
+- User receives reset link via email  
+- On completion, returns to login screen  
+
+---
+
+## 8. Final Destination
+
+### 8.1 Home Dashboard
+- User lands here after successful onboarding and community approval
+
+---
+
+## Backend Integration – Supabase Configuration
+
+### 1. Authentication
+**Provider:** Supabase Auth  
+**Supports:**  
+- Email/password signup and login  
+- Google OAuth  
+
+**Post-auth Requirement:**  
+- After signup, user must complete profile (first name, last name, phone)  
+- No access to communities until assigned or approved  
+
+---
+
+### 2. Database Tables
+
+#### 2.1 `users` (default Supabase Auth table)
+- `id` (UUID)  
+- `email`  
+- `created_at`  
+
+#### 2.2 `user_profiles`
+- `user_id` (FK → users.id)  
+- `first_name`  
+- `last_name`  
+- `phone_number`  
+- `avatar_url` (optional)  
+- `completed_profile` (boolean)  
+
+#### 2.3 `communities`
+- `id` (UUID)  
+- `handle` (unique)  
+- `name`  
+- `email`  
+- `phone_number`  
+- `tax_id` (nullable)  
+- `address`, `city`, `state`, `zip`, `country`  
+- `logo_url` (optional)  
+- `created_by` (FK → users.id)  
+
+#### 2.4 `collaborators`
+- `id`  
+- `user_id` (FK → users.id)  
+- `community_id` (FK → communities.id)  
+- `role` (enum: owner, admin, limited_admin, viewer)  
+- `status` (enum: approved, pending, rejected)  
+- `invited_by` (nullable FK → users.id)  
+- `joined_at`  
+
+#### 2.5 `invites`
+- `id`  
+- `email`  
+- `community_id`  
+- `role` (admin, limited_admin, viewer)  
+- `token`  
+- `status` (pending, accepted, expired)  
+- `created_at`, `accepted_at`  
+
+---
+
+### 3. Role-Based Access Control (RLS)
+Apply RLS policies to the following tables:
+
+- **communities:** Only visible to users who are collaborators or members  
+- **collaborators:** Only the user or admins of the community can see their row  
+- **community_members:** Users can only view their own membership  
+- **invites:** Only users with admin+ roles can view/send  
+- **user_profiles:** Users can only access their own profile  
+
+---
+
+### 4. Flows & Triggers
+
+#### 4.1 Signup Flow
+- After signup: insert into `user_profiles`  
+- Redirect user to Join or Create Community  
+- No access until collaborator entry with `status = approved`  
+
+#### 4.2 Join Request
+- On user input of community handle:  
+  - Validate community existence  
+  - Insert into `collaborators` with `status = pending`  
+  - Notify community admins  
+
+#### 4.3 Admin Review
+- Admin views pending requests  
+- On approval:  
+  - Set `collaborators.status = approved`  
+  - Assign role  
+- On rejection:  
+  - Set `status = rejected` or delete  
+
+#### 4.4 Create Community
+- Insert into `communities`  
+- Insert creator as `collaborator` with role = owner and status = approved  
+- For each added collaborator:  
+  - Insert into `invites`  
+  - Trigger email invite with token  
+
+#### 4.5 Accept Invite
+- Match invite token to email  
+- On accept:  Create collaborators row with given role + status approved
+- Mark invite as accepted

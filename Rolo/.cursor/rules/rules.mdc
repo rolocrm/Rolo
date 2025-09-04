@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+- when asking Agent for things, dont ask me 'should I do it for you? "tell me if i should proceed?" if you arent giving me options on how to proceed, if its just one answer, do it. I will use Chat if i am here to confirm things, not with Agent.
