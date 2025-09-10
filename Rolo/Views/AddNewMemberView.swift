@@ -93,7 +93,7 @@ struct AddNewMemberView: View {
     // Custom fields state
     @State private var customFields: [CustomField] = []
     // Section open/close state
-    enum Section { case personalInfo, significantDates, customFields, donations, notes }
+    enum Section { case personalInfo, significantDates, customFields, donations, notes, lists }
     @State private var openSection: Section? = .personalInfo
     
     // Add new state variables for new fields
@@ -102,8 +102,11 @@ struct AddNewMemberView: View {
     @State private var city = ""
     @State private var state = ""
     @State private var zipCode = ""
+    @State private var apartment = ""
+    @State private var country = ""
     @State private var maritalStatus = ""
     @State private var hasChildren = false
+    @State private var jewishStatus: JewishStatus = .yes
     @State private var jewishMemberName = ""
     @State private var mothersHebrewName = ""
     @State private var fathersHebrewName = ""
@@ -123,6 +126,14 @@ struct AddNewMemberView: View {
     @FocusState private var focusedAssociateIndex: Int?
     @State private var isProgrammaticAssociateUpdate = false
     
+    // List-related state variables
+    @State private var selectedLists: Set<UUID> = []
+    @State private var availableLists: [MemberList] = []
+    @State private var showingCreateListSheet = false
+    @State private var newListName = ""
+    @State private var newListDescription = ""
+    @State private var listCreationError: String?
+    
     // New state variables for PersonalInfoSection
     @State private var newWeblink: String = ""
     @FocusState private var isWeblinkInputFocused: Bool
@@ -130,9 +141,10 @@ struct AddNewMemberView: View {
     enum Gender: String, CaseIterable, Identifiable { case male, female; var id: String { rawValue } }
     enum BirthdayPreference: String, CaseIterable, Identifiable { case hebrew = "Hebrew date", gregorian = "Gregorian date"; var id: String { rawValue } }
     enum Tribe: String, CaseIterable, Identifiable { case cohen = "Cohen", levi = "Levi", yisroel = "Yisroel"; var id: String { rawValue } }
+    enum JewishStatus: String, CaseIterable, Identifiable { case yes = "Yes", no = "No"; var id: String { rawValue } }
     struct HouseholdMember: Identifiable { let id = UUID(); var name: String; var relationship: String }
     enum Field: Hashable {
-        case firstName, middleName, lastName, nickname, email, address, city, state, zipCode, occupation, phone, maritalStatus, hasChildren, metAt, jewishMemberName, tribe, dateOfBirth, memberSince, gender, colorTag, birthdayPreference, tags, aliyaName, mothersHebrewName, fathersHebrewName, instagram, tiktok, linkedin, facebook, newHouseholdName, newHouseholdRelationship
+        case firstName, middleName, lastName, nickname, email, address, city, state, zipCode, apartment, country, occupation, phone, maritalStatus, hasChildren, metAt, jewishMemberName, tribe, dateOfBirth, memberSince, gender, colorTag, birthdayPreference, tags, aliyaName, mothersHebrewName, fathersHebrewName, instagram, tiktok, linkedin, facebook, newHouseholdName, newHouseholdRelationship
     }
     
     var body: some View {
@@ -176,8 +188,11 @@ struct AddNewMemberView: View {
                         city: $city,
                         state: $state,
                         zipCode: $zipCode,
+                        apartment: $apartment,
+                        country: $country,
                         maritalStatus: $maritalStatus,
                         hasChildren: $hasChildren,
+                        jewishStatus: $jewishStatus,
                         mothersHebrewName: $mothersHebrewName,
                         fathersHebrewName: $fathersHebrewName,
                         associates: $associates,
@@ -205,6 +220,14 @@ struct AddNewMemberView: View {
                         openSection: $openSection
                     )
                     NotesSection(notes: $notes, firstName: firstName, openSection: $openSection)
+                    ListsSection(
+                        selectedLists: $selectedLists,
+                        availableLists: $availableLists,
+                        openSection: $openSection,
+                        showingCreateListSheet: $showingCreateListSheet,
+                        newListName: $newListName,
+                        newListDescription: $newListDescription
+                    )
                     Spacer(minLength: 120)
                 }
                 .padding(.horizontal)
@@ -223,6 +246,14 @@ struct AddNewMemberView: View {
             .sheet(isPresented: $showingImagePicker, onDismiss: loadImage) {
                 ImagePicker(image: $inputImage, profilePhotoFileName: $profilePhotoFileName)
             }
+                .sheet(isPresented: $showingCreateListSheet) {
+                    CreateListSheet(
+                        newListName: $newListName,
+                        newListDescription: $newListDescription,
+                        errorMessage: $listCreationError,
+                        onSave: createNewList
+                    )
+                }
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .onTapGesture { focusedField = nil }
             if !keyboard.isKeyboardVisible {
@@ -320,8 +351,11 @@ struct AddNewMemberView: View {
         @Binding var city: String
         @Binding var state: String
         @Binding var zipCode: String
+        @Binding var apartment: String
+        @Binding var country: String
         @Binding var maritalStatus: String
         @Binding var hasChildren: Bool
+        @Binding var jewishStatus: AddNewMemberView.JewishStatus
         @Binding var mothersHebrewName: String
         @Binding var fathersHebrewName: String
         @Binding var associates: [AssociateDraft]
@@ -442,12 +476,22 @@ struct AddNewMemberView: View {
                                         .textFieldStyle(.roundedBorder)
                                         .focused($focusedField, equals: .occupation)
                                 }
-                                // Row 6: Address
-                                VStack(alignment: .leading) {
-                                    Text("Address").font(.caption).foregroundColor(.gray)
-                                    TextField("Address", text: $address)
-                                        .textFieldStyle(.roundedBorder)
-                                        .focused($focusedField, equals: .address)
+                                // Row 6: Address (2/3) | Apartment (1/3)
+                                HStack(spacing: 10) {
+                                    VStack(alignment: .leading) {
+                                        Text("Address").font(.caption).foregroundColor(.gray)
+                                        TextField("Address", text: $address)
+                                            .textFieldStyle(.roundedBorder)
+                                            .focused($focusedField, equals: .address)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    VStack(alignment: .leading) {
+                                        Text("Apartment").font(.caption).foregroundColor(.gray)
+                                        TextField("Apt", text: $apartment)
+                                            .textFieldStyle(.roundedBorder)
+                                            .focused($focusedField, equals: .apartment)
+                                    }
+                                    .frame(width: 100)
                                 }
                                 // Row 7: City | State | Zip code
                                 HStack(spacing: 10) {
@@ -470,7 +514,14 @@ struct AddNewMemberView: View {
                                             .focused($focusedField, equals: .zipCode)
                                     }
                                 }
-                                // Row 8: Date of birth | Birthday Preference
+                                // Row 8: Country (full width)
+                                VStack(alignment: .leading) {
+                                    Text("Country").font(.caption).foregroundColor(.gray)
+                                    TextField("Country", text: $country)
+                                        .textFieldStyle(.roundedBorder)
+                                        .focused($focusedField, equals: .country)
+                                }
+                                // Row 9: Date of birth | Birthday Preference
                                 HStack(spacing: 10) {
                                     VStack(alignment: .leading) {
                                         Text("Date of birth").font(.caption).foregroundColor(.gray)
@@ -546,38 +597,53 @@ struct AddNewMemberView: View {
                             // Torah
                             VStack(alignment: .leading, spacing: 18) {
                                 Text("Religious Info").font(.headline)
+                                
+                                // Is Jewish picker
                                 HStack(spacing: 12) {
-                                    Text("Tribe").font(.caption).foregroundColor(.gray)
-                                    Picker("Tribe", selection: $tribe) {
-                                        ForEach(AddNewMemberView.Tribe.allCases) { t in
-                                            Text(t.rawValue).tag(t)
+                                    Text("Is Jewish?").font(.caption).foregroundColor(.gray)
+                                    Picker("Is Jewish?", selection: $jewishStatus) {
+                                        ForEach(AddNewMemberView.JewishStatus.allCases) { status in
+                                            Text(status.rawValue).tag(status)
                                         }
                                     }
                                     .pickerStyle(.segmented)
                                 }
-                                VStack(alignment: .leading) {
-                                    Text("Jewish member name").font(.caption).foregroundColor(.gray)
-                                    TextField("אריאל בן דוד", text: $aliyaName)
-                                        .textFieldStyle(.roundedBorder)
-                                        .focused($focusedField, equals: .aliyaName)
-                                        .submitLabel(.done)
-                                        .onSubmit { focusedField = nil }
-                                }
-                                VStack(alignment: .leading) {
-                                    Text("Father's Hebrew name").font(.caption).foregroundColor(.gray)
-                                    TextField("Father's Hebrew name", text: $fathersHebrewName)
-                                        .textFieldStyle(.roundedBorder)
-                                        .focused($focusedField, equals: .fathersHebrewName)
-                                        .submitLabel(.done)
-                                        .onSubmit { focusedField = nil }
-                                }
-                                VStack(alignment: .leading) {
-                                    Text("Mother's Hebrew name").font(.caption).foregroundColor(.gray)
-                                    TextField("Mother's Hebrew name", text: $mothersHebrewName)
-                                        .textFieldStyle(.roundedBorder)
-                                        .focused($focusedField, equals: .mothersHebrewName)
-                                        .submitLabel(.done)
-                                        .onSubmit { focusedField = nil }
+                                
+                                // Conditional religious fields - only show if jewishStatus is yes
+                                if jewishStatus == .yes {
+                                    HStack(spacing: 12) {
+                                        Text("Tribe").font(.caption).foregroundColor(.gray)
+                                        Picker("Tribe", selection: $tribe) {
+                                            ForEach(AddNewMemberView.Tribe.allCases) { t in
+                                                Text(t.rawValue).tag(t)
+                                            }
+                                        }
+                                        .pickerStyle(.segmented)
+                                    }
+                                    VStack(alignment: .leading) {
+                                        Text("Jewish member name").font(.caption).foregroundColor(.gray)
+                                        TextField("אריאל בן דוד", text: $aliyaName)
+                                            .textFieldStyle(.roundedBorder)
+                                            .focused($focusedField, equals: .aliyaName)
+                                            .submitLabel(.done)
+                                            .onSubmit { focusedField = nil }
+                                    }
+                                    VStack(alignment: .leading) {
+                                        Text("Father's Hebrew name").font(.caption).foregroundColor(.gray)
+                                        TextField("Father's Hebrew name", text: $fathersHebrewName)
+                                            .textFieldStyle(.roundedBorder)
+                                            .focused($focusedField, equals: .fathersHebrewName)
+                                            .submitLabel(.done)
+                                            .onSubmit { focusedField = nil }
+                                    }
+                                    VStack(alignment: .leading) {
+                                        Text("Mother's Hebrew name").font(.caption).foregroundColor(.gray)
+                                        TextField("Mother's Hebrew name", text: $mothersHebrewName)
+                                            .textFieldStyle(.roundedBorder)
+                                            .focused($focusedField, equals: .mothersHebrewName)
+                                            .submitLabel(.done)
+                                            .onSubmit { focusedField = nil }
+                                    }
                                 }
                             }
                             .padding()
@@ -724,6 +790,60 @@ struct AddNewMemberView: View {
             if let name = name { household[idx].name = name }
             if let relationship = relationship { household[idx].relationship = relationship }
         }
+    }
+    
+    func createNewList() {
+        let trimmedName = newListName.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Clear previous error
+        listCreationError = nil
+        
+        // Validation checks with specific error messages
+        guard !trimmedName.isEmpty else {
+            listCreationError = "List name cannot be empty"
+            return
+        }
+        guard trimmedName != "All" else {
+            listCreationError = "List name 'All' is reserved"
+            return
+        }
+        guard trimmedName != "Membership" else {
+            listCreationError = "List name 'Membership' is reserved"
+            return
+        }
+        guard !availableLists.contains(where: { $0.name.lowercased() == trimmedName.lowercased() }) else {
+            listCreationError = "A list with this name already exists"
+            return
+        }
+        
+        // Check for special characters only (no letters or numbers)
+        let hasValidCharacters = trimmedName.rangeOfCharacter(from: CharacterSet.alphanumerics) != nil
+        guard hasValidCharacters else {
+            listCreationError = "List name must contain at least one letter or number"
+            return
+        }
+        
+        let newList = MemberList(
+            id: UUID(),
+            communityId: UUID(), // This should be the actual community ID
+            name: trimmedName,
+            description: newListDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : newListDescription.trimmingCharacters(in: .whitespacesAndNewlines),
+            color: "#007AFF", // Default color
+            emoji: nil, // No emoji
+            isDefault: false,
+            createdBy: UUID(), // This should be the actual user ID
+            createdAt: Date(),
+            updatedAt: Date(),
+            memberCount: 0
+        )
+        
+        availableLists.append(newList)
+        selectedLists.insert(newList.id)
+        
+        // Reset form
+        newListName = ""
+        newListDescription = ""
+        showingCreateListSheet = false
     }
     func printResults() {
         memberID = UUID().uuidString
@@ -1524,22 +1644,12 @@ struct MemberSelectionSheet: View {
     var onDismiss: (() -> Void)? = nil
     @Environment(\.dismiss) var dismiss
     @State private var search = ""
-    let members: [MemberPlaceholder] = [
-        MemberPlaceholder(memberID: "1", name: "James Adan"),
-        MemberPlaceholder(memberID: "2", name: "Rob Ansertin"),
-        MemberPlaceholder(memberID: "3", name: "Asher"),
-        MemberPlaceholder(memberID: "4", name: "Trevor Baldwin"),
-        MemberPlaceholder(memberID: "5", name: "Baruch"),
-        MemberPlaceholder(memberID: "6", name: "James Bron"),
-        MemberPlaceholder(memberID: "7", name: "Alex Broomen"),
-        MemberPlaceholder(memberID: "8", name: "David Byrratz"),
-        MemberPlaceholder(memberID: "9", name: "Mike Carlebach"),
-        MemberPlaceholder(memberID: "10", name: "River Courtland"),
-        MemberPlaceholder(memberID: "11", name: "Daniel Caplan"),
-        MemberPlaceholder(memberID: "12", name: "Rachel Cohn"),
-        MemberPlaceholder(memberID: "13", name: "Ben Dershowitz"),
-        MemberPlaceholder(memberID: "14", name: "Miriam Diamond")
-    ]
+    let members: [MemberPlaceholder] = {
+        let broomfieldMembers = BroomfieldDataLoader.shared.getBroomfieldMembers()
+        return Array(broomfieldMembers.prefix(20)).map { member in
+            MemberPlaceholder(memberID: member.id.uuidString, name: member.name)
+        }
+    }()
     var filtered: [MemberPlaceholder] { search.isEmpty ? members : members.filter { $0.name.localizedCaseInsensitiveContains(search) } }
     var body: some View {
         NavigationView {
@@ -1796,6 +1906,241 @@ private struct SocialMediaSection: View {
         weblinks.append(trimmed)
         newWeblink = ""
         isWeblinkInputFocused = true
+    }
+}
+
+// MARK: - Lists Section
+struct ListsSection: View {
+    @Binding var selectedLists: Set<UUID>
+    @Binding var availableLists: [MemberList]
+    @Binding var openSection: AddNewMemberView.Section?
+    @Binding var showingCreateListSheet: Bool
+    @Binding var newListName: String
+    @Binding var newListDescription: String
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Button(action: {
+                    withAnimation {
+                        openSection = openSection == .lists ? nil : .lists
+                    }
+                }) {
+                    Text("Add to list")
+                        .font(.headline.bold())
+                        .foregroundStyle(GlobalTheme.brandPrimary)
+                        .padding(.top, 8)
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .foregroundColor(GlobalTheme.brandPrimary)
+                        .font(.system(size: 16, weight: .semibold))
+                        .rotationEffect(.degrees(openSection == .lists ? 180 : 0))
+                }
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+            
+            if openSection == .lists {
+                VStack(alignment: .leading, spacing: 12) {
+                    // Selected lists display
+                    if !selectedLists.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Selected lists:")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal)
+                            
+                            LazyVGrid(columns: [
+                                GridItem(.adaptive(minimum: 120), spacing: 8)
+                            ], spacing: 8) {
+                                ForEach(availableLists.filter { selectedLists.contains($0.id) }) { list in
+                                    HStack(spacing: 6) {
+                                        Text(list.name)
+                                            .font(.caption)
+                                            .lineLimit(1)
+                                        Spacer()
+                                        Button(action: {
+                                            selectedLists.remove(list.id)
+                                        }) {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .font(.caption)
+                                                .foregroundColor(.red)
+                                        }
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(simpleListBackground())
+                                }
+                            }
+                            .padding(.horizontal)
+                        }
+                    }
+                    
+                    // Available lists
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Available lists:")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal)
+                        
+                        if availableLists.isEmpty {
+                            VStack(spacing: 12) {
+                                Text("No lists created yet")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                                
+                                Button(action: {
+                                    showingCreateListSheet = true
+                                }) {
+                                    HStack {
+                                        Image(systemName: "plus")
+                                        Text("Create your first list")
+                                    }
+                                    .font(.subheadline)
+                                    .foregroundColor(GlobalTheme.brandPrimary)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(GlobalTheme.brandPrimary, lineWidth: 1)
+                                    )
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 20)
+                        } else {
+                            LazyVGrid(columns: [
+                                GridItem(.adaptive(minimum: 120), spacing: 8)
+                            ], spacing: 8) {
+                                ForEach(availableLists.filter { !selectedLists.contains($0.id) }) { list in
+                                    Button(action: {
+                                        selectedLists.insert(list.id)
+                                    }) {
+                                        HStack(spacing: 6) {
+                                            Text(list.name)
+                                                .font(.caption)
+                                                .lineLimit(1)
+                                                .foregroundColor(.primary)
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .frame(maxWidth: .infinity)
+                                        .background(simpleListBackground())
+                                    }
+                                }
+                                
+                                // Add new list button
+                                Button(action: {
+                                    showingCreateListSheet = true
+                                }) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "plus")
+                                            .font(.caption)
+                                        Text("New list")
+                                            .font(.caption)
+                                            .lineLimit(1)
+                                    }
+                                    .foregroundColor(GlobalTheme.brandPrimary)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .frame(maxWidth: .infinity)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(GlobalTheme.brandPrimary, lineWidth: 1)
+                                    )
+                                }
+                            }
+                            .padding(.horizontal)
+                        }
+                    }
+                }
+                .padding(.bottom, 16)
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
+        .shadow(color: Color.black.opacity(0.03), radius: 4, x: 0, y: 2)
+    }
+    
+    private func simpleListBackground() -> some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(Color.gray.opacity(0.1))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+            )
+    }
+}
+
+// MARK: - Create List Sheet
+struct CreateListSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var newListName: String
+    @Binding var newListDescription: String
+    @Binding var errorMessage: String?
+    let onSave: () -> Void
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                // List name input
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("List name")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    TextField("Example: Work, Friends", text: $newListName)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.body)
+                        .onChange(of: newListName) { _ in
+                            // Clear error when user starts typing
+                            errorMessage = nil
+                        }
+                }
+                
+                // Description input
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Description (optional)")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    TextField("Brief description of this list", text: $newListDescription)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.body)
+                }
+                
+                // Error message display
+                if let errorMessage = errorMessage {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                        Text(errorMessage)
+                            .foregroundColor(.red)
+                            .font(.caption)
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                }
+                
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Create List")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Save") {
+                        onSave()
+                    }
+                    .disabled(newListName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
     }
 }
 

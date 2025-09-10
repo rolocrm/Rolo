@@ -178,6 +178,31 @@ CREATE TABLE audit_logs (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Lists table (for organizing members into groups like WhatsApp lists)
+CREATE TABLE lists (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    community_id UUID NOT NULL REFERENCES communities(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    color VARCHAR(7) DEFAULT '#007AFF', -- Hex color for the list
+    emoji VARCHAR(10), -- Optional emoji for the list
+    is_default BOOLEAN DEFAULT FALSE, -- For "All" and "Membership" default lists
+    created_by UUID NOT NULL REFERENCES users(id),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(community_id, name)
+);
+
+-- Member lists junction table (many-to-many relationship)
+CREATE TABLE member_lists (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    member_id UUID NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    list_id UUID NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+    added_by UUID NOT NULL REFERENCES users(id),
+    added_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(member_id, list_id)
+);
+
 -- Indexes for performance
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_user_profiles_user_id ON user_profiles(user_id);
@@ -185,6 +210,9 @@ CREATE INDEX idx_communities_handle ON communities(handle);
 CREATE INDEX idx_communities_created_by ON communities(created_by);
 CREATE INDEX idx_collaborators_user_id ON collaborators(user_id);
 CREATE INDEX idx_collaborators_community_id ON collaborators(community_id);
+CREATE INDEX idx_lists_community_id ON lists(community_id);
+CREATE INDEX idx_member_lists_member_id ON member_lists(member_id);
+CREATE INDEX idx_member_lists_list_id ON member_lists(list_id);
 CREATE INDEX idx_collaborators_status ON collaborators(status);
 CREATE INDEX idx_invites_token ON invites(token);
 CREATE INDEX idx_invites_email_community ON invites(email, community_id);

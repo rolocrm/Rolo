@@ -70,7 +70,7 @@ extension Color {
     }
 }
 
-enum ColorTag: String, CaseIterable, Identifiable {
+enum ColorTag: String, CaseIterable, Identifiable, Codable {
     case none, red, yellow, green, blue, purple, brown
 
     var id: String { rawValue }

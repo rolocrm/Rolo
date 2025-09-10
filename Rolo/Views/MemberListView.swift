@@ -6,19 +6,8 @@ func colorTag(from string: String?) -> ColorTag {
     return ColorTag(rawValue: string) ?? .none
 }
 
-// Load members from placeholder data
-let loadedMembers: [Member] = placeholderMembersData.map { dict in
-    Member(
-        id: dict["id"] as? UUID ?? UUID(),
-        name: dict["name"] as? String ?? "",
-        colorTag: colorTag(from: dict["colorTag"] as? String),
-        email: dict["email"] as? String ?? "",
-        isMember: dict["isMember"] as? Bool ?? false,
-        membershipAmount: dict["membershipAmount"] as? Double,
-        hasProfileImage: dict["hasProfileImage"] as? Bool ?? false,
-        profileImageName: dict["profileImageName"] as? String
-    )
-}
+// Load members from Broomfield data
+let loadedMembers: [Member] = BroomfieldDataLoader.shared.getBroomfieldMembers()
 
 // MARK: - Searchable Field Protocol and Config
 protocol MemberSearchableField {
@@ -58,15 +47,101 @@ struct MemberListView: View {
     @State private var selectedMemberIDs: Set<UUID> = []
     
     @State private var isPresentingAddMember = false
+    @State private var selectedMemberForProfile: Member? = nil
+    
+    // List filtering state
+    @State private var availableLists: [MemberList] = BroomfieldDataLoader.shared.getBroomfieldLists()
+    @State private var selectedListId: UUID? = nil
+    @State private var showingCreateListSheet = false
+    @State private var newListName = ""
+    @State private var newListDescription = ""
+    @State private var listCreationError: String?
+    
+    // List modification state
+    @State private var showingEditListSheet = false
+    @State private var editingList: MemberList? = nil
+    @State private var editListName = ""
+    @State private var editListDescription = ""
+    @State private var listEditError: String?
+    @State private var showingDeleteConfirmation = false
+    
+    // Lists management state
+    @State private var showingListsManagement = false
     
     // MARK: - Search Logic
     var nameMatches: [Member] {
+        let filteredMembers = filterMembersByList(members)
+        
         if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return members.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            return filteredMembers.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         } else {
-            return members.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+            return filteredMembers.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
                 .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         }
+    }
+    
+    // MARK: - List Filtering Logic
+    private func filterMembersByList(_ members: [Member]) -> [Member] {
+        guard let selectedListId = selectedListId else {
+            // No list selected, show all members
+            return members
+        }
+        
+        // Special handling for Membership list
+        if selectedListId == UUID(uuidString: "00000000-0000-0000-0000-000000000001") {
+            return members.filter { $0.isMember }
+        }
+        
+        // Find the selected list to get its name
+        guard let selectedList = availableLists.first(where: { $0.id == selectedListId }) else {
+            return []
+        }
+        
+        // Filter by custom list using list name
+        let listAssignments = BroomfieldDataLoader.shared.getListAssignments()
+        let listName = selectedList.name
+        
+        // Find the list name in listAssignments (exact match first)
+        var memberNamesInList: [String] = []
+        
+        // Try exact match first
+        if let exactMatch = listAssignments[listName] {
+            memberNamesInList = exactMatch
+        } else {
+            // Try case-insensitive match
+            for (key, memberNames) in listAssignments {
+                if key.lowercased() == listName.lowercased() {
+                    memberNamesInList = memberNames
+                    break
+                }
+            }
+        }
+        
+        // If still no match, try partial matching for common variations
+        if memberNamesInList.isEmpty {
+            let lowerListName = listName.lowercased()
+            for (key, memberNames) in listAssignments {
+                let lowerKey = key.lowercased()
+                // Handle common variations like "Chabad List" vs "chabad"
+                if lowerKey.contains(lowerListName) || lowerListName.contains(lowerKey) {
+                    memberNamesInList = memberNames
+                    break
+                }
+            }
+        }
+        
+        guard !memberNamesInList.isEmpty else {
+            print("DEBUG: No members found for list '\(listName)'. Available list keys: \(Array(listAssignments.keys))")
+            return []
+        }
+        
+        let filteredMembers = members.filter { member in
+            memberNamesInList.contains(member.name)
+        }
+        
+        print("DEBUG: List '\(listName)' has \(memberNamesInList.count) member names, filtered to \(filteredMembers.count) members")
+        
+        return filteredMembers
     }
     
     struct FieldMatch {
@@ -94,10 +169,12 @@ struct MemberListView: View {
     var fieldMatches: [String: [FieldMatch]] {
         guard showFieldMatches else { return [:] }
         var result: [String: [FieldMatch]] = [:]
+        let filteredMembers = filterMembersByList(members)
+        
         for field in searchableFields where field.isEnabled {
             let minChars = (field is MembershipAmountSearchableField) ? 1 : 3
             if searchText.trimmingCharacters(in: .whitespacesAndNewlines).count < minChars { continue }
-            let matches = members.filter { member in
+            let matches = filteredMembers.filter { member in
                 field.value(from: member).localizedCaseInsensitiveContains(searchText)
             }.map { member in
                 FieldMatch(member: member, field: field, matchedString: field.value(from: member))
@@ -124,9 +201,31 @@ struct MemberListView: View {
                     .frame(height: 60)
                 
                 CustomSearchBar(text: $searchText)
+                    .padding(.bottom, 8)
+                
+                // Filter pills
+                FilterPillsView(
+                    availableLists: $availableLists,
+                    selectedListId: $selectedListId,
+                    showingCreateListSheet: $showingCreateListSheet
+                )
+                
+
                 
                 
 
+                // Filter indicator
+                if selectedListId != nil {
+                    HStack {
+                        Text("\(nameMatches.count) members")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(GlobalTheme.coloredGrey)
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+                }
+                
                 // Name matches
                 LazyVStack(spacing: 0) {
                     ForEach(nameMatches) { member in
@@ -141,6 +240,9 @@ struct MemberListView: View {
                                     } else {
                                         selectedMemberIDs.insert(member.id)
                                     }
+                                } else {
+                                    // Navigate to member profile
+                                    selectedMemberForProfile = member
                                 }
                             },
                             onLongPress: {
@@ -157,7 +259,12 @@ struct MemberListView: View {
                     if let matches = fieldMatches[fieldName] {
                         Section(header: FieldSectionHeader(title: fieldName)) {
                             ForEach(matches, id: \.member.id) { match in
-                                MemberFieldResultRow(member: match.member, fieldName: fieldName, fieldValue: match.matchedString, searchText: searchText)
+                                Button(action: {
+                                    selectedMemberForProfile = match.member
+                                }) {
+                                    MemberFieldResultRow(member: match.member, fieldName: fieldName, fieldValue: match.matchedString, searchText: searchText)
+                                }
+                                .buttonStyle(PlainButtonStyle())
                             }
                         }
                     }
@@ -176,7 +283,47 @@ struct MemberListView: View {
                         }
                         Spacer(minLength: 40)
                     }
+                } else if selectedListId != nil && nameMatches.isEmpty && fieldMatches.isEmpty {
+                    // Show message when filter is active but no members match
+                    VStack {
+                        Spacer(minLength: 40)
+                        HStack {
+                            Spacer()
+                            VStack(spacing: 8) {
+                                Text("No members in this list")
+                                    .font(.system(size: 18, weight: .medium))
+                                    .foregroundColor(.gray)
+                                if let selectedList = availableLists.first(where: { $0.id == selectedListId }) {
+                                    Text("The '\(selectedList.name)' list is empty")
+                                        .font(.system(size: 14, weight: .regular))
+                                        .foregroundColor(.gray)
+                                }
+                            }
+                            .padding(.vertical, 40)
+                            Spacer()
+                        }
+                        Spacer(minLength: 40)
+                    }
                 }
+                
+                // Modify list button - only show when a list is selected
+                if selectedListId != nil, let selectedList = availableLists.first(where: { $0.id == selectedListId }) {
+                    VStack {
+                        Button(action: {
+                            editingList = selectedList
+                            editListName = selectedList.name
+                            editListDescription = selectedList.description ?? ""
+                            showingEditListSheet = true
+                        }) {
+                            Text("Modify \(selectedList.name)")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(GlobalTheme.highlightGreen)
+                        }
+                        .padding(.top, 20)
+                        .padding(.bottom, 10)
+                    }
+                }
+                
                 Spacer()
                     .frame(height: 80)
             }
@@ -204,8 +351,11 @@ struct MemberListView: View {
                         .font(.largeTitle)
                         .fontWeight(.semibold)
                     Spacer()
-                    Button {
-                        // to be coded
+                    Menu {
+                        Button("Lists") {
+                            showingListsManagement = true
+                        }
+                        // Add other menu items here as needed
                     } label: {
                         Image(systemName: "ellipsis")
                             .font(.system(size: 20, weight: .semibold))
@@ -255,11 +405,178 @@ struct MemberListView: View {
                 AddNewMemberView()
             }
         }
+        .sheet(isPresented: $showingCreateListSheet) {
+            CreateListSheet(
+                newListName: $newListName,
+                newListDescription: $newListDescription,
+                errorMessage: $listCreationError,
+                onSave: {
+                    createNewList()
+                }
+            )
+        }
+        .sheet(isPresented: $showingEditListSheet) {
+            EditListSheet(
+                listName: $editListName,
+                listDescription: $editListDescription,
+                errorMessage: $listEditError,
+                onSave: {
+                    updateList()
+                },
+                onDelete: {
+                    showingDeleteConfirmation = true
+                }
+            )
+        }
+        .alert("Delete List", isPresented: $showingDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                deleteList()
+            }
+        } message: {
+            Text("Are you sure you want to delete this list? This action cannot be undone.")
+        }
         .onChange(of: selectedMemberIDs) {
             if selectedMemberIDs.isEmpty {
                 // Exiting selection mode
             }
         }
+        .sheet(isPresented: $showingListsManagement) {
+            ListsManagementView(availableLists: $availableLists)
+        }
+        .sheet(item: $selectedMemberForProfile) { member in
+            NavigationStack {
+                MemberProfilePage(member: member)
+            }
+        }
+    }
+    
+    private func createNewList() {
+        let trimmedName = newListName.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Clear previous error
+        listCreationError = nil
+        
+        // Validation checks with specific error messages
+        guard !trimmedName.isEmpty else {
+            listCreationError = "List name cannot be empty"
+            return
+        }
+        guard trimmedName != "All" else {
+            listCreationError = "List name 'All' is reserved"
+            return
+        }
+        guard trimmedName != "Membership" else {
+            listCreationError = "List name 'Membership' is reserved"
+            return
+        }
+        guard !availableLists.contains(where: { $0.name.lowercased() == trimmedName.lowercased() }) else {
+            listCreationError = "A list with this name already exists"
+            return
+        }
+        
+        // Check for special characters only (no letters or numbers)
+        let hasValidCharacters = trimmedName.rangeOfCharacter(from: CharacterSet.alphanumerics) != nil
+        guard hasValidCharacters else {
+            listCreationError = "List name must contain at least one letter or number"
+            return
+        }
+        
+        let newList = MemberList(
+            id: UUID(),
+            communityId: UUID(), // This should be the actual community ID
+            name: trimmedName,
+            description: newListDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : newListDescription.trimmingCharacters(in: .whitespacesAndNewlines),
+            color: "#007AFF", // Default color
+            emoji: nil, // No emoji
+            isDefault: false,
+            createdBy: UUID(), // This should be the actual user ID
+            createdAt: Date(),
+            updatedAt: Date(),
+            memberCount: 0
+        )
+        
+        availableLists.append(newList)
+        
+        // Reset form
+        newListName = ""
+        newListDescription = ""
+        showingCreateListSheet = false
+    }
+    
+    private func updateList() {
+        guard let currentEditingList = editingList else { return }
+        let trimmedName = editListName.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Clear previous error
+        listEditError = nil
+        
+        // Validation checks with specific error messages
+        guard !trimmedName.isEmpty else {
+            listEditError = "List name cannot be empty"
+            return
+        }
+        guard trimmedName != "All" else {
+            listEditError = "List name 'All' is reserved"
+            return
+        }
+        guard trimmedName != "Membership" else {
+            listEditError = "List name 'Membership' is reserved"
+            return
+        }
+        guard !availableLists.contains(where: { $0.id != currentEditingList.id && $0.name.lowercased() == trimmedName.lowercased() }) else {
+            listEditError = "A list with this name already exists"
+            return
+        }
+        
+        // Check for special characters only (no letters or numbers)
+        let hasValidCharacters = trimmedName.rangeOfCharacter(from: CharacterSet.alphanumerics) != nil
+        guard hasValidCharacters else {
+            listEditError = "List name must contain at least one letter or number"
+            return
+        }
+        
+        // Update the list
+        if let index = availableLists.firstIndex(where: { $0.id == currentEditingList.id }) {
+            availableLists[index] = MemberList(
+                id: currentEditingList.id,
+                communityId: currentEditingList.communityId,
+                name: trimmedName,
+                description: editListDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : editListDescription.trimmingCharacters(in: .whitespacesAndNewlines),
+                color: currentEditingList.color,
+                emoji: currentEditingList.emoji,
+                isDefault: currentEditingList.isDefault,
+                createdBy: currentEditingList.createdBy,
+                createdAt: currentEditingList.createdAt,
+                updatedAt: Date(),
+                memberCount: currentEditingList.memberCount
+            )
+        }
+        
+        // Reset form
+        editListName = ""
+        editListDescription = ""
+        editingList = nil
+        showingEditListSheet = false
+    }
+    
+    private func deleteList() {
+        guard let currentEditingList = editingList else { return }
+        
+        // Remove from available lists
+        availableLists.removeAll { $0.id == currentEditingList.id }
+        
+        // If this was the selected list, clear selection
+        if selectedListId == currentEditingList.id {
+            selectedListId = nil
+        }
+        
+        // Reset form
+        editListName = ""
+        editListDescription = ""
+        editingList = nil
+        showingEditListSheet = false
+        showingDeleteConfirmation = false
     }
 }
 
@@ -370,6 +687,220 @@ private struct MemberFieldResultRow: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 10)
+    }
+}
+
+// MARK: - Filter Pills View
+struct FilterPillsView: View {
+    @Binding var availableLists: [MemberList]
+    @Binding var selectedListId: UUID?
+    @Binding var showingCreateListSheet: Bool
+    
+    // Ordered lists for display (All first, then custom order)
+    private var orderedLists: [MemberList] {
+        let customOrder = UserDefaults.standard.getListOrder()
+        
+        // Start with custom lists in the saved order
+        var orderedLists: [MemberList] = []
+        for listId in customOrder {
+            if let list = availableLists.first(where: { $0.id == listId }) {
+                orderedLists.append(list)
+            }
+        }
+        
+        // Add any new lists that aren't in the saved order yet
+        let orderedIds = Set(orderedLists.map { $0.id })
+        for list in availableLists {
+            if !orderedIds.contains(list.id) {
+                orderedLists.append(list)
+            }
+        }
+        
+        return orderedLists
+    }
+    
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                // All members pill (always first)
+                //spacer to keep the pills aligned to the list
+                Spacer()
+                    .frame(width: 4)
+                
+                FilterPill(
+                    title: "All",
+                    isSelected: selectedListId == nil
+                ) {
+                    selectedListId = nil
+                }
+                
+                // Membership pill
+                FilterPill(
+                    title: "Membership",
+                    isSelected: selectedListId == UUID(uuidString: "00000000-0000-0000-0000-000000000001") // Special UUID for membership
+                ) {
+                    selectedListId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")
+                }
+                
+                // Custom lists in user's preferred order
+                ForEach(orderedLists) { list in
+                    FilterPill(
+                        title: list.name,
+                        isSelected: selectedListId == list.id
+                    ) {
+                        selectedListId = list.id
+                    }
+                }
+                
+                // Create list button
+                if availableLists.isEmpty {
+                    // Show "Create list" button when no lists exist
+                    Button(action: {
+                        showingCreateListSheet = true
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 14, weight: .medium))
+                            Text("Create list")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        .foregroundColor(GlobalTheme.roloDarkGrey)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 5.5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 100)
+                                .fill(Color.clear)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 100)
+                                        .stroke(GlobalTheme.roloLightGrey40, lineWidth: 1)
+                                )
+                        )
+                    }
+                } else {
+                    // Show "+" button when lists exist
+                    Button(action: {
+                        showingCreateListSheet = true
+                    }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(GlobalTheme.roloDarkGrey)
+                            .frame(width: 24, height: 24)
+                            .background(
+                                RoundedRectangle(cornerRadius: 100)
+                                    .stroke(GlobalTheme.roloLightGrey40, lineWidth: 1)
+                            )
+                    }
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+}
+
+// MARK: - Filter Pill Component
+struct FilterPill: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .lineLimit(1)
+                .foregroundColor(isSelected ? GlobalTheme.highlightGreen : GlobalTheme.roloDarkGrey)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 100)
+                        .fill(isSelected ? GlobalTheme.tertiaryGreen : Color.clear)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 100)
+                                .stroke(GlobalTheme.roloLightGrey40, lineWidth: isSelected ? 0 : 1)
+                        )
+                )
+        }
+    }
+}
+
+// MARK: - Edit List Sheet
+struct EditListSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var listName: String
+    @Binding var listDescription: String
+    @Binding var errorMessage: String?
+    let onSave: () -> Void
+    let onDelete: () -> Void
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                // List name input
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("List name")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    TextField("Example: Work, Friends", text: $listName)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.body)
+                        .onChange(of: listName) { _ in
+                            // Clear error when user starts typing
+                            errorMessage = nil
+                        }
+                }
+                
+                // Description input
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Description (optional)")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    TextField("Brief description of this list", text: $listDescription)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.body)
+                }
+                
+                // Error message display
+                if let errorMessage = errorMessage {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                        Text(errorMessage)
+                            .foregroundColor(.red)
+                            .font(.caption)
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                }
+                
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Edit List")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Save") {
+                        onSave()
+                    }
+                    .disabled(listName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                
+                ToolbarItem(placement: .bottomBar) {
+                    Button("Delete List") {
+                        onDelete()
+                    }
+                    .foregroundColor(.red)
+                }
+            }
+        }
     }
 }
 

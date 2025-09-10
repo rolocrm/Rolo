@@ -235,19 +235,21 @@ struct UndoBanner: View {
         .background(.ultraThinMaterial)
         .cornerRadius(12)
         .padding(.horizontal)
-        .offset(y: offset + dragOffset)
+        .offset(x: offset + dragOffset)
         .gesture(
             DragGesture()
                 .onChanged { gesture in
-                    if gesture.translation.height > 0 {
-                        dragOffset = gesture.translation.height
+                    // Allow swiping left or right
+                    if abs(gesture.translation.width) > abs(gesture.translation.height) {
+                        dragOffset = gesture.translation.width
                     }
                 }
                 .onEnded { gesture in
-                    if gesture.translation.height > 50 {
+                    // Dismiss if swiped more than 50 points horizontally
+                    if abs(gesture.translation.width) > 50 {
                         onFinalize()
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            offset = 300
+                            offset = gesture.translation.width > 0 ? 400 : -400
                         }
                     } else {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
@@ -299,18 +301,20 @@ struct DeleteBanner: View {
         .cornerRadius(12)
         .padding(.horizontal)
         .padding(.bottom, 8)
-        .offset(y: offset + dragOffset)
+        .offset(x: offset + dragOffset)
         .gesture(
             DragGesture()
                 .onChanged { gesture in
-                    if gesture.translation.height > 0 {
-                        dragOffset = gesture.translation.height
+                    // Allow swiping left or right
+                    if abs(gesture.translation.width) > abs(gesture.translation.height) {
+                        dragOffset = gesture.translation.width
                     }
                 }
                 .onEnded { gesture in
-                    if gesture.translation.height > 50 {
+                    // Dismiss if swiped more than 50 points horizontally
+                    if abs(gesture.translation.width) > 50 {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            offset = 300
+                            offset = gesture.translation.width > 0 ? 400 : -400
                         }
                         timer?.invalidate()
                     } else {

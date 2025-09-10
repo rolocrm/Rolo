@@ -9,6 +9,7 @@ const userRoutes = require('./routes/users');
 const communityRoutes = require('./routes/communities');
 const memberRoutes = require('./routes/members');
 const subscriptionRoutes = require('./routes/subscriptions');
+const listRoutes = require('./routes/lists');
 const { errorHandler } = require('./middleware/errorHandler');
 const { authenticateToken } = require('./middleware/auth');
 
@@ -55,6 +56,7 @@ app.use('/api/users', authenticateToken, userRoutes);
 app.use('/api/communities', authenticateToken, communityRoutes);
 app.use('/api/members', authenticateToken, memberRoutes);
 app.use('/api/subscriptions', authenticateToken, subscriptionRoutes);
+app.use('/api', authenticateToken, listRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

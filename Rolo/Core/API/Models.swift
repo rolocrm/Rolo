@@ -497,4 +497,152 @@ struct SubscriptionUsage: Codable {
         case planName = "plan_name"
         case planDisplayName = "plan_display_name"
     }
-} 
+}
+
+// MARK: - MemberList Model
+struct MemberList: Identifiable, Codable, Equatable {
+    let id: UUID
+    let communityId: UUID
+    let name: String
+    let description: String?
+    let color: String
+    let emoji: String?
+    let isDefault: Bool
+    let createdBy: UUID
+    let createdAt: Date?
+    let updatedAt: Date?
+    let memberCount: Int? // Computed field for member count
+    
+    enum CodingKeys: String, CodingKey {
+        case id, name, description, color, emoji
+        case communityId = "community_id"
+        case isDefault = "is_default"
+        case createdBy = "created_by"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case memberCount = "member_count"
+    }
+    
+    // Computed property for SwiftUI Color
+    var swiftUIColor: Color {
+        Color(hex: color) ?? .blue
+    }
+    
+    // Display name with emoji if available
+    var displayName: String {
+        if let emoji = emoji, !emoji.isEmpty {
+            return "\(emoji) \(name)"
+        }
+        return name
+    }
+}
+
+// MARK: - Member List Junction Model (Junction table)
+struct MemberListJunction: Identifiable, Codable {
+    let id: UUID
+    let memberId: UUID
+    let listId: UUID
+    let addedBy: UUID
+    let addedAt: Date?
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case memberId = "member_id"
+        case listId = "list_id"
+        case addedBy = "added_by"
+        case addedAt = "added_at"
+    }
+}
+
+// MARK: - List Creation Request
+struct ListCreationRequest: Codable {
+    let name: String
+    let description: String?
+    let color: String
+    let emoji: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case name, description, color, emoji
+    }
+}
+
+// MARK: - List Update Request
+struct ListUpdateRequest: Codable {
+    let name: String?
+    let description: String?
+    let color: String?
+    let emoji: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case name, description, color, emoji
+    }
+}
+
+// MARK: - Add Members to List Request
+struct AddMembersToListRequest: Codable {
+    let memberIds: [UUID]
+    let listId: UUID
+    
+    enum CodingKeys: String, CodingKey {
+        case memberIds = "member_ids"
+        case listId = "list_id"
+    }
+}
+
+// MARK: - Remove Members from List Request
+struct RemoveMembersFromListRequest: Codable {
+    let memberIds: [UUID]
+    let listId: UUID
+    
+    enum CodingKeys: String, CodingKey {
+        case memberIds = "member_ids"
+        case listId = "list_id"
+    }
+}
+
+// MARK: - API Member Model (for backend responses)
+struct APIMember: Identifiable, Codable {
+    let id: UUID
+    let firstName: String
+    let lastName: String
+    let email: String?
+    let phoneNumber: String?
+    let address: String?
+    let city: String?
+    let state: String?
+    let zip: String?
+    let country: String?
+    let dateOfBirth: Date?
+    let membershipDate: Date?
+    let status: String?
+    let notes: String?
+    let addedToListAt: Date?
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case firstName = "first_name"
+        case lastName = "last_name"
+        case email
+        case phoneNumber = "phone_number"
+        case address, city, state, zip, country
+        case dateOfBirth = "date_of_birth"
+        case membershipDate = "membership_date"
+        case status, notes
+        case addedToListAt = "added_at"
+    }
+    
+    var fullName: String {
+        "\(firstName) \(lastName)"
+    }
+}
+
+// MARK: - List with Members Model
+struct ListWithMembers: Identifiable, Codable {
+    let list: MemberList
+    let members: [APIMember]
+    
+    var id: UUID { list.id }
+    var name: String { list.name }
+    var displayName: String { list.displayName }
+    var memberCount: Int { members.count }
+}

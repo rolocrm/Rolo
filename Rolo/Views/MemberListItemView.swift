@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 
-struct Member: Identifiable {
+struct Member: Identifiable, Codable {
     let id: UUID
     let name: String
     let colorTag: ColorTag

@@ -78,6 +78,12 @@ public struct AgendaTask: Identifiable {
 
 extension AgendaTask {
     public static let placeholderAgendaTasks: [AgendaTask] = {
+        // Use Broomfield data for agenda tasks
+        return BroomfieldDataLoader.shared.getBroomfieldAgendaTasks()
+    }()
+    
+    // Keep the original placeholder tasks as backup
+    public static let originalPlaceholderAgendaTasks: [AgendaTask] = {
         let calendar = Calendar.current
         let today = Date()
         
